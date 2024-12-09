@@ -1,3 +1,4 @@
+// OrderCard.tsx
 import React from 'react';
 import { Order } from '../types/order';
 import {
@@ -20,6 +21,7 @@ interface OrderCardProps {
   onStatusChange?: (id: string) => void;
   onCancel?: (id: string) => void;
   isDriver?: boolean;
+  children?: React.ReactNode // Agregamos esta propiedad para el botón
 }
 
 export const OrderCard: React.FC<OrderCardProps> = ({
@@ -28,6 +30,7 @@ export const OrderCard: React.FC<OrderCardProps> = ({
   onStatusChange,
   onCancel,
   isDriver,
+  children, // Renderizamos el botón aquí
 }) => {
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -122,6 +125,7 @@ export const OrderCard: React.FC<OrderCardProps> = ({
                   <Icons.XCircle className="w-4 h-4" />
                   <span>Cancelar</span>
                 </button>
+                {children} {/* Renderizamos el botón aquí */}
               </>
             )}
         </div>

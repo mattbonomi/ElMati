@@ -1,3 +1,4 @@
+// OrderForm.tsx
 import React from 'react';
 import { Order } from '../types/order';
 
@@ -47,15 +48,6 @@ export const OrderForm: React.FC<OrderFormProps> = ({
         >
           <option value="Cash">Efectivo</option>
           <option value="Transfer">Transferencia</option>
-        </select>
-        <select
-          name="pago"
-          value={formData.pago?.toString() || 'false'}
-          onChange={onChange}
-          className="p-2 border rounded"
-        >
-          <option value="true">Pago</option>
-          <option value="false">No Pago</option>
         </select>
       </div>
       <button

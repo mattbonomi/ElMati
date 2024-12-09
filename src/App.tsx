@@ -1,29 +1,60 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Order, OrderStatus, Role } from './types/order';
 import { Header } from './components/Header';
 import { OrderStats } from './components/OrderStats';
 import { TabNavigation } from './components/TabNavigation';
 import { DispatcherView } from './components/DispatcherView';
 import { DriverView } from './components/DriverView';
+import { initializeApp } from 'firebase/app';
+import {
+  getFirestore,
+  collection,
+  getDocs,
+  addDoc,
+  updateDoc,
+  doc,
+  deleteDoc,
+} from 'firebase/firestore';
+
+const firebaseConfig = {
+  apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
+  authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.REACT_APP_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.REACT_APP_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.REACT_APP_FIREBASE_APP_ID,
+  measurementId: process.env.REACT_APP_FIREBASE_MEASUREMENT_ID
+};
+const app = initializeApp(firebaseConfig);
+export const db = getFirestore(app);
 
 const App: React.FC = () => {
   const [role, setRole] = useState<Role>('dispatcher');
-  const [orders, setOrders] = useState<Order[]>([
-    {
-      id: '1',
-      direccion: 'Av. Corrientes 1234, CABA',
-      cantidad: 2,
-      formaDePago: 'Cash',
-      pago: false, // Initially set to 'No Pago'
-      estado: 'pendiente',
-      mapUrl: '',
-      timestamp: Date.now(),
-    },
-    // Add more orders as needed
-  ]);
+  const [orders, setOrders] = useState<Order[]>([]);
   const [activeTab, setActiveTab] = useState<OrderStatus>('pendiente');
   const [formData, setFormData] = useState<Partial<Order>>({});
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true); // Add loading state
+
+  useEffect(() => {
+    const fetchOrders = async () => {
+      try {
+        const ordersCol = collection(db, 'orders');
+        const ordersSnapshot = await getDocs(ordersCol);
+        const ordersList = ordersSnapshot.docs.map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+        })) as Order[];
+        setOrders(ordersList);
+      } catch (error) {
+        console.error('Error fetching orders:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchOrders();
+  }, []);
 
   const filteredOrders = orders.filter((order) => order.estado === activeTab);
 
@@ -42,66 +73,87 @@ const App: React.FC = () => {
     }));
   };
 
-  const handleFormSubmit = (e: React.FormEvent) => {
+  const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.direccion?.trim()) return;
 
-    setOrders((prev) => {
+    try {
       if (editingId) {
-        return prev.map((order) =>
-          order.id === editingId ? { ...order, ...formData } : order
+        // Update existing order
+        const orderRef = doc(db, 'orders', editingId);
+        await updateDoc(orderRef, formData);
+        setOrders((prev) =>
+          prev.map((order) =>
+            order.id === editingId ? { ...order, ...formData } : order
+          )
         );
+      } else {
+        // Create new order
+        const newOrder: Order = {
+          id: '', // Initialize id as an empty string
+          direccion: formData.direccion || '',
+          cantidad: formData.cantidad || 0,
+          formaDePago: (formData.formaDePago as 'Cash' | 'Transferencia') || 'Cash', // Changed to 'Cash'
+          pago: Boolean(formData.pago),
+          estado: 'pendiente',
+          mapUrl: '',
+          timestamp: Date.now(),
+        };
+        const docRef = await addDoc(collection(db, 'orders'), newOrder);
+        setOrders((prev) => [...prev, { id: docRef.id, ...newOrder }]);
       }
 
-      const newOrder: Order = {
-        id: (prev.length + 1).toString(),
-        direccion: formData.direccion || '',
-        cantidad: formData.cantidad || 0,
-        formaDePago:
-          (formData.formaDePago as 'Cash' | 'Transfer') || 'Cash',
-        pago: Boolean(formData.pago),
-        estado: 'pendiente',
-        mapUrl: '',
-        timestamp: Date.now(),
-      };
-      return [...prev, newOrder];
-    });
-
-    setFormData({});
-    setEditingId(null);
+      setFormData({});
+      setEditingId(null);
+    } catch (error) {
+      console.error('Error adding/updating document: ', error);
+    }
   };
 
-  const handleStatusChange = (id: string) => {
-    setOrders((prev) =>
-      prev.map((order) => {
-        if (order.id !== id) return order;
+  const handleStatusChange = async (id: string) => {
+    try {
+      const orderRef = doc(db, 'orders', id);
+      const orderToUpdate = orders.find((order) => order.id === id);
 
+      if (orderToUpdate) {
         const statusMap: Record<OrderStatus, OrderStatus> = {
           pendiente: 'en-proceso',
           'en-proceso': 'completado',
           completado: 'completado',
           cancelado: 'cancelado',
         };
-
-        const newStatus = statusMap[order.estado];
-
-        // Automatically set 'pago' to true when order is completed
+        const newStatus = statusMap[orderToUpdate.estado];
         const isCompleted = newStatus === 'completado';
-        return {
-          ...order,
+
+        await updateDoc(orderRef, {
           estado: newStatus,
-          pago: isCompleted ? true : order.pago,
-        };
-      })
-    );
+          pago: isCompleted ? true : orderToUpdate.pago,
+        });
+
+        setOrders((prev) =>
+          prev.map((order) =>
+            order.id === id
+              ? {
+                  ...order,
+                  estado: newStatus,
+                  pago: isCompleted ? true : order.pago,
+                }
+              : order
+          )
+        );
+      }
+    } catch (error) {
+      console.error('Error updating document: ', error);
+    }
   };
 
-  const handleCancelOrder = (id: string) => {
-    setOrders((prev) =>
-      prev.map((order) =>
-        order.id === id ? { ...order, estado: 'cancelado' } : order
-      )
-    );
+  const handleCancelOrder = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, 'orders', id));
+      setOrders((prev) => prev.filter((order) => order.id !== id));
+    } catch (error) {
+      console.error('Error deleting document: ', error);
+    }
   };
 
   const handleEdit = (id: string) => {
@@ -114,32 +166,30 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <Header
-        role={role}
-        onRoleChange={() =>
-          setRole(role === 'dispatcher' ? 'driver' : 'dispatcher')
-        }
-      />
-
+      {/* ... your existing JSX ... */}
       <main className="max-w-7xl mx-auto py-8 px-4">
-        <OrderStats orders={orders} />
-        <TabNavigation activeTab={activeTab} onTabChange={setActiveTab} />
-
-        {role === 'dispatcher' ? (
-          <DispatcherView
-            orders={filteredOrders}
-            formData={formData}
-            editingId={editingId}
-            onFormSubmit={handleFormSubmit}
-            onInputChange={handleInputChange}
-            onEdit={handleEdit}
-            onCancel={handleCancelOrder}
-          />
+        {/* ... your existing JSX ... */}
+        {isLoading ? ( // Add loading indicator
+          <div>Loading...</div>
         ) : (
-          <DriverView
-            orders={filteredOrders}
-            onStatusChange={handleStatusChange}
-          />
+          <>
+            {role === 'dispatcher' ? (
+              <DispatcherView
+                orders={filteredOrders}
+                formData={formData}
+                editingId={editingId}
+                onFormSubmit={handleFormSubmit}
+                onInputChange={handleInputChange}
+                onEdit={handleEdit}
+                onCancel={handleCancelOrder}
+              />
+            ) : (
+              <DriverView
+                orders={filteredOrders}
+                onStatusChange={handleStatusChange}
+              />
+            )}
+          </>
         )}
       </main>
     </div>
