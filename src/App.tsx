@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { Order, OrderStatus, Role } from './types/order';
 import { Header } from './components/Header';
 import { OrderStats } from './components/OrderStats';
-import { TabNavigation } from './components/TabNavigation';
 import { DispatcherView } from './components/DispatcherView';
 import { DriverView } from './components/DriverView';
 import { initializeApp } from 'firebase/app';
@@ -23,18 +22,18 @@ const firebaseConfig = {
   storageBucket: process.env.REACT_APP_FIREBASE_STORAGE_BUCKET,
   messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID,
   appId: process.env.REACT_APP_FIREBASE_APP_ID,
-  measurementId: process.env.REACT_APP_FIREBASE_MEASUREMENT_ID
+  measurementId: process.env.REACT_APP_FIREBASE_MEASUREMENT_ID,
 };
+
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
 
 const App: React.FC = () => {
   const [role, setRole] = useState<Role>('dispatcher');
   const [orders, setOrders] = useState<Order[]>([]);
-  const [activeTab, setActiveTab] = useState<OrderStatus>('pendiente');
   const [formData, setFormData] = useState<Partial<Order>>({});
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true); // Add loading state
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     const fetchOrders = async () => {
@@ -55,8 +54,6 @@ const App: React.FC = () => {
 
     fetchOrders();
   }, []);
-
-  const filteredOrders = orders.filter((order) => order.estado === activeTab);
 
   const handleInputChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
@@ -80,28 +77,29 @@ const App: React.FC = () => {
     try {
       if (editingId) {
         // Update existing order
+        const { id, ...rest } = formData;
         const orderRef = doc(db, 'orders', editingId);
-        await updateDoc(orderRef, formData);
+        await updateDoc(orderRef, rest);
         setOrders((prev) =>
           prev.map((order) =>
-            order.id === editingId ? { ...order, ...formData } : order
-          )
+            order.id === editingId ? { ...order, ...rest } : order,
+          ),
         );
       } else {
         // Create new order
         const newOrder: Order = {
-          id: '', // Initialize id as an empty string
           direccion: formData.direccion || '',
           cantidad: formData.cantidad || 0,
-          formaDePago: (formData.formaDePago as 'Cash' | 'Transferencia') || 'Cash', // Changed to 'Cash'
+          formaDePago: (formData.formaDePago as 'Cash' | 'Transferencia') || 'Cash',
           pago: Boolean(formData.pago),
           estado: 'pendiente',
           mapUrl: '',
           timestamp: Date.now(),
+          id: ''
         };
         const docRef = await addDoc(collection(db, 'orders'), newOrder);
-        setOrders((prev) => [...prev, { id: docRef.id, ...newOrder }]);
-      }
+        setOrders((prev) => [...prev, { ...newOrder, id: docRef.id }]);
+    }
 
       setFormData({});
       setEditingId(null);
@@ -138,8 +136,8 @@ const App: React.FC = () => {
                   estado: newStatus,
                   pago: isCompleted ? true : order.pago,
                 }
-              : order
-          )
+              : order,
+          ),
         );
       }
     } catch (error) {
@@ -166,16 +164,25 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* ... your existing JSX ... */}
+      <Header
+        role={role}
+        onRoleChange={() =>
+          setRole((prevRole) =>
+            prevRole === 'dispatcher' ? 'driver' : 'dispatcher',
+          )
+        }
+      />
+
       <main className="max-w-7xl mx-auto py-8 px-4">
-        {/* ... your existing JSX ... */}
-        {isLoading ? ( // Add loading indicator
+        <OrderStats orders={orders} />
+
+        {isLoading ? (
           <div>Loading...</div>
         ) : (
           <>
             {role === 'dispatcher' ? (
               <DispatcherView
-                orders={filteredOrders}
+                orders={orders}
                 formData={formData}
                 editingId={editingId}
                 onFormSubmit={handleFormSubmit}
@@ -185,7 +192,7 @@ const App: React.FC = () => {
               />
             ) : (
               <DriverView
-                orders={filteredOrders}
+                orders={orders}
                 onStatusChange={handleStatusChange}
               />
             )}
